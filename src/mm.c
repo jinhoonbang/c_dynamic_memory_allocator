@@ -36,17 +36,54 @@ team_t team = {
 };
 
 /* single word (4) or double word (8) alignment */
+#define WSIZE 4
 #define ALIGNMENT 8
+#define CHUNKSIZE (1<<12)
+#define SEG_LIST_SIZE 12
+
+#define PACK(size, alloc) ((size | alloc))
+
+#define GET(p) (*(unsigned int *)(p))
+#define PUT(p, val) (*(unsigned int *)(p) = (val))
+
+#define GET_SIZE(p) (GET(p) & ~0x7)
+#define GET_ALLOC(p) (GET(p) & 0x1)
+
+#define HEADER_P(bp) ((char *)(bp) - WSIZE)
+#define FOOTER_P(bp) ((char *)(bp) + GET_SIZE(HEADER_P(bp)) - ALIGNMENT)
+
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
+#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - ALIGNMENT)))
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
-
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+void *free_lists[SEG_LIST_SIZE]
+
+static void *extend_heap(size_t words)
+{
+	char *bp;
+	size_t size;
+
+	size = (words % 2) ? (words + 1)*WSIZE : words * WSIZE;
+	if ((long)(bp = mem_sbrk(size)) == -1)
+		return NULL;
+	
+
+
+
+}
+/*
+ *
+ */
+
 
 /* 
  * mm_init - initialize the malloc package.
  */
+
 int mm_init(void)
 {
     return 0;
