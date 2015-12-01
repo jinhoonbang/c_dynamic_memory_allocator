@@ -41,13 +41,13 @@ team_t team = {
 #define CHUNKSIZE (1<<12)
 #define SEG_LIST_SIZE 12
 
-#define PACK(size, alloc) ((size | alloc))
-
+#define PACK(size, prev_status, alloc) ((size | prev_status << 1 | alloc))
 #define GET(p) (*(unsigned int *)(p))
 #define PUT(p, val) (*(unsigned int *)(p) = (val))
 
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
+#define GET_PREV_STATUS(p) (GET(p) & 0x2)
 
 #define HEADER_P(bp) ((char *)(bp) - WSIZE)
 #define FOOTER_P(bp) ((char *)(bp) + GET_SIZE(HEADER_P(bp)) - ALIGNMENT)
@@ -60,7 +60,7 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-void *free_lists[SEG_LIST_SIZE]
+void *free_lists[SEG_LIST_SIZE];
 
 static void *extend_heap(size_t words)
 {
@@ -71,14 +71,53 @@ static void *extend_heap(size_t words)
 	if ((long)(bp = mem_sbrk(size)) == -1)
 		return NULL;
 	
+	PUT(HEADER_P(bp), PACK(size, 0));
+	PUT(FOOTER_P(bp), PACK(size, 0));
+	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(0, 1));
 
+	/*add coalesce and insert
+	 *
+	 */
+	return bp;
+}
 
+static void *coalesce(void *bp)
+{
+	size_t prev_alloc = GET_PREV_STATUS(HEADER_P(bp));
+	size_t next_alloc = GET_ALLOC(HEADER(NEXT_BLKP(bp)));
+	size_t size = GET_SIZE(HEADER(HEADER(BP)));
+
+	if (prev_alloc && next_alloc)
+		return bp;
+
+	else if (prev_alloc && !next_alloc)
+	{
+		size += GET_SIZE(HEADER_P(NEXT_BLKP(bp)));
+		PUT(HEADER_P(bp), PACK(size,0,0));
+		PUT(FOOTER_P(bp), PACK(size,0,0));
+	}
+
+	else if (!prev_alloc && next_alloc)
+	{
+		size_t prev_status = GET_PREV_STATUS(HDRP(PREV_BLKP(bp)));
+		size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+		PUT(FOOTER_P(bp), PACK(size,0,0));
+		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size,prev_status,0));
+		bp = PREV_BLKP(bp);
+	}
+
+	else
+	{
+		size_t prev_status = GET_PREV_STATUS(HDRP(PREV_BLKP(bp)));
+		size += GET_SIZE(HEADER_P(PREV_BLKP(bp))) + GET_SIZE(FOOTER_P(NEXT_BLKP(bp)));
+		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, prev_status, 0));
+		PUT(FOOTER_P(NEXT_BLKP(bp)), PACK(size, 0, 0));
+		bp = PREV_BLKP(bp);
+	}
+
+	return bp;
 
 }
-/*
- *
- */
-
 
 /* 
  * mm_init - initialize the malloc package.
