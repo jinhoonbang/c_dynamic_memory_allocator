@@ -177,7 +177,7 @@ void mm_free(void *bp)
 
 	PUT(HEADER_P(bp), PACK(size, GET_PREV_ALLOC(HEADER_P(bp)), 0));
 	PUT(FOOTER_P(bp), PACK(size, 0, 0));
-	coalesce(bp);
+	//coalesce(bp);
 	insert_node(bp);
 }
 
@@ -224,7 +224,7 @@ static void *extend_heap(size_t words)
   	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(size, 0, 1));
   
   	//add coalesce and insert to free list  		
-  	bp = coalesce(bp);
+  	//bp = coalesce(bp);
 	return bp;
 }
 
@@ -308,6 +308,9 @@ static void* delete_node(void* bp)
 {
 	if (bp == NULL) {
 		return NULL;
+	}
+	else if (GET_PREV_NODE(bp) == NULL && GET_NEXT_NODE(bp) == NULL) {
+		;
 	}
 	else if (GET_PREV_NODE(bp) == NULL && GET_NEXT_NODE(bp) != NULL) {
 		SET_PREV_NODE(GET_NEXT_NODE(bp), NULL);
