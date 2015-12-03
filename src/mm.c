@@ -81,6 +81,7 @@ int mm_init(void)
 {
 	//declare pointer to char
 	void *heap_start;
+	void *bp;
 
 	//initialize segregated free lists
 	int i;
@@ -97,9 +98,11 @@ int mm_init(void)
 	PUT(heap_start + (3*WSIZE), PACK(0, 1, 1));
 	heap_start += ALIGNMENT;
 
-	if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
+	bp = extend_heap(CHUNKSIZE/WSIZE);
+	if (bp  == NULL)
 		return -1;
-
+	
+	insert_node(bp);
 	return 0;
 }
 
@@ -138,8 +141,9 @@ void *mm_malloc(size_t size)
 	//finds matching entry from  for asize
 	int i;
 	int bp_i = 0;
+
 	for (i = 0; i < SEG_LIST_SIZE; i++) {
-		if ((0x1<<i) >= asize) {
+		if ((0x1<<i) >= asize && free_lists[i] != NULL) {
 			bp_i = i;
 			break;
 		}
@@ -199,6 +203,11 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
+/*
+ * argument is number of words, not number of bytes.  
+ *
+ */
+
 static void *extend_heap(size_t words)
 {
   	char *bp;
@@ -215,7 +224,8 @@ static void *extend_heap(size_t words)
   	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(size, 0, 1));
   
   	//add coalesce and insert to free list  		
-  	return coalesce(bp);
+  	bp = coalesce(bp);
+	return bp;
 }
 
 static void *coalesce(void* bp) 
@@ -253,8 +263,6 @@ static void *coalesce(void* bp)
   		bp = PREV_BLKP(bp);
   	}
   
-	insert_node(bp);
-
   	return bp;
 }
 /* 
