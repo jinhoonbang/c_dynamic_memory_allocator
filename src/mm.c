@@ -22,7 +22,7 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "ateam",
+    "je",
     /* First member's full name */
     "Jin Hoon Bang",
     /* First member's email address */
@@ -38,6 +38,8 @@ team_t team = {
 #define ALIGNMENT 8
 #define CHUNKSIZE (1<<12)
 #define SEG_LIST_SIZE 20
+
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 #define PACK(size, prev_alloc, alloc) ((size | prev_alloc << 1 | alloc))
 
@@ -99,20 +101,61 @@ int mm_init(void)
 	return 0;
 }
 
-/* 
- * mm_malloc - Allocate a block by incrementing the brk pointer.
- *     Always allocate a block whose size is a multiple of the alignment.
+/*
+ * takes argument size and pad it to satisfy align req. 
+ * add header and footer 
+ * find matching free space from segregated_free_list
+ * split free space if the required block is smaller by ALIGNMENT
+ * extend heap if there is no matching free space in segregated_free_list
+ *
  */
 void *mm_malloc(size_t size)
 {
-    int newsize = ALIGN(size + SIZE_T_SIZE);
-    void *p = mem_sbrk(newsize);
-    if (p == (void *)-1)
-	return NULL;
-    else {
-        *(size_t *)p = size;
-        return (void *)((char *)p + SIZE_T_SIZE);
-    }
+    // int newsize = ALIGN(size + SIZE_T_SIZE);
+    // void *p = mem_sbrk(newsize);
+    // if (p == (void *)-1)
+	// return NULL;
+    // else {
+    //     *(size_t *)p = size;
+    //     return (void *)((char *)p + SIZE_T_SIZE);
+    // }
+	
+	size_t asize;
+	size_t extendsize;
+	void *bp;
+
+	if (size == 0)
+		return NULL;
+
+	if (size <= ALIGNMENT)
+		asize = 2 * ALIGNMENT;
+	else
+		asize = ALIGNMENT * ((size + (ALIGNMENT) + (ALIGNMENT-1))/ALIGNMENT);
+
+	int i;
+	int bp_i = 0;
+	for (i = 0; i < SEG_LIST_SIZE; i++) {
+		if ((0x2<<i) >= size) {
+			bp_i = i;
+			break;
+		}
+	}
+
+	bp = delete_node(free_lists[bp_i]);
+
+	if (bp != NULL) {
+		PUT(HEADER_P(bp), PACK(size, GET_PREV_ALLOC(HEADER_P(bp)), 1));
+		PUT(FOOTER_P(bp), PACK(size, 0, 1));
+		return bp;
+	}
+	
+	extendsize = MAX(asize, CHUNKSIZE);
+	if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
+		return NULL;
+	PUT(HEADER_P(bp), PACK(size, GET_PREV_ALLOC(HEADER_P(bp)), 1));
+	PUT(FOOTER_P(bp), PACK(size, 0, 1));
+
+	return bp;
 }
 
 /*
@@ -130,6 +173,8 @@ void mm_free(void *bp)
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ *
+ *
  */
 void *mm_realloc(void *ptr, size_t size)
 {
@@ -198,6 +243,8 @@ static void *coalesce(void* bp)
   		bp = PREV_BLKP(bp);
   	}
   
+	insert_node(bp);
+
   	return bp;
 }
 /* 
@@ -242,7 +289,7 @@ static void* insert_node(void* bp)
 static void* delete_node(void* bp)
 {
 	if (bp == NULL) {
-		return bp;
+		return NULL;
 	}
 	else if (GET_PREV_NODE(bp) == NULL && GET_NEXT_NODE(bp) != NULL) {
 		SET_PREV_NODE(GET_NEXT_NODE(bp), NULL);
@@ -258,5 +305,17 @@ static void* delete_node(void* bp)
 	return bp;
 }
 
+int testCnt = 0;
+int testFailed = 0;
 
+void fail(int passed, int line) {
+	testCnt++;
+	if (!passed) {
+		printf("test case on line %i failed\n", line);
+		testFailed++;
+	}
+}
 
+int main() {
+	printf("hello. its me.");
+}
