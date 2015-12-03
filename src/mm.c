@@ -236,7 +236,7 @@ static void *coalesce(void* bp)
   
   	// prev allocated, next allocated
   	if (prev_alloc && next_alloc) {
-  		return bp;
+		;
   	}
   	// prev allocated, next free
   	else if (prev_alloc && !next_alloc) {
