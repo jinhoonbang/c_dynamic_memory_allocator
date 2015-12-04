@@ -75,6 +75,7 @@ static void* extend_heap(size_t words);
 static void* coalesce(void* bp);
 static void insert_node(void* bp);
 static void delete_node(void* bp);
+static void print_free_lists(void);
 
 /* 
  * mm_init - initialize the malloc package.
@@ -140,8 +141,6 @@ void *mm_malloc(size_t size)
 		}
 	}
 
-	//bp = delete_node(free_lists[bp_i]);
-
 	if (bp != NULL) {
 		PUT(HEADER_P(bp), PACK(asize, 1));
 		PUT(FOOTER_P(bp), PACK(asize, 1));
@@ -168,9 +167,10 @@ void mm_free(void *bp)
 
 	PUT(HEADER_P(bp), PACK(size, 0));
 	PUT(FOOTER_P(bp), PACK(size, 0));
-	insert_node(bp);
-	coalesce(bp);
+	//insert_node(bp);
+	//coalesce(bp);
 }
+
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
@@ -199,8 +199,9 @@ void *mm_realloc(void *ptr, size_t size)
  *
  */
 static void *extend_heap(size_t words)
-{
-  	char *bp;
+{	
+	void *bp;
+  	//char *bp;
   	size_t size;
 
   	size = (words % 2) ? (words + 1)*WSIZE : words * WSIZE;
@@ -209,10 +210,10 @@ static void *extend_heap(size_t words)
   
   	PUT(HEADER_P(bp), PACK(size, 0));
   	PUT(FOOTER_P(bp), PACK(size, 0));
-  	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(size, 1));
+  	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(0, 1));
   
-	return coalesce(bp);
-	//return (bp);
+	//return coalesce(bp);
+	return (bp);
 }
 
 static void *coalesce(void* bp) 
@@ -251,10 +252,10 @@ static void *coalesce(void* bp)
   		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
   		PUT(FOOTER_P(NEXT_BLKP(bp)), PACK(size, 0));
   		bp = PREV_BLKP(bp);
+		
   	}
 
 	insert_node(bp);
-
   	return bp;
 }
 
@@ -275,8 +276,13 @@ static void insert_node(void* bp)
 			break;
 		}
 	}
+
+	if (bp_i == 0)
+		bp_i = SEG_LIST_SIZE - 1;
 	
-	//maybe check if bp is NULL?
+	if (bp == NULL)
+		return;
+
 	if (free_lists[bp_i] == NULL) {
 		free_lists[bp_i] = bp;
 		SET_PREV_NODE(free_lists[bp_i], NULL);
@@ -288,6 +294,7 @@ static void insert_node(void* bp)
 		free_lists[bp_i] = bp;
 	}
 	
+	print_free_lists();
 	return;
 	//return bp;
 }
@@ -316,8 +323,22 @@ static void delete_node(void* bp)
 		SET_NEXT_NODE(GET_PREV_NODE(bp), GET_NEXT_NODE(bp));
 	}
 
+	print_free_lists();
 	return;
 	//return bp;
+}
+
+void print_free_lists(void) {
+	int i;
+	void* currnode;
+	for (i = 0; i < SEG_LIST_SIZE; i++) {
+		currnode = free_lists[i];
+		printf("%p", currnode);
+		while (GET_NEXT_NODE(currnode) != NULL) {
+			currnode = GET_NEXT_NODE(currnode);
+			printf("%p", currnode);
+		}
+	}
 }
 
 /*
