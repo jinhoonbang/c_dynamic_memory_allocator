@@ -1,4 +1,6 @@
 *
 
 !.gitignore
-!mm.c
+!src/mm.c
+!README
+!README.md
