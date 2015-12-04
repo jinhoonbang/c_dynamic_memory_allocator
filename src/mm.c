@@ -162,7 +162,7 @@ void *mm_malloc(size_t size)
 		return NULL;
 	PUT(HEADER_P(bp), PACK(asize, GET_PREV_ALLOC(HEADER_P(bp)), 1));
 	PUT(FOOTER_P(bp), PACK(asize, 0, 1));
-	insert_node(bp)
+	insert_node(bp);
 
 	//what if we have to split? free  (CHUNKSIZE - asize)?
 	
