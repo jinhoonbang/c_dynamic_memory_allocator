@@ -1,1 +1,0 @@
-# c_dynamic_memory_allocator
