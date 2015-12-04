@@ -37,9 +37,12 @@ team_t team = {
 #define WSIZE 4
 #define ALIGNMENT 8
 #define CHUNKSIZE (1<<12)
+//#define SEG_LIST_SIZE 12
+#define SEG_LIST_SIZE 20
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 
+//#define PACK(size, prev_alloc, alloc) ((size | prev_alloc << 1 | alloc))
 #define PACK(size, alloc) ((size) | (alloc))
 
 #define GET(p) (*(unsigned int *)(p))
@@ -47,6 +50,7 @@ team_t team = {
 
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
+//#define GET_PREV_ALLOC(p) (GET(p) & 0x2)
 
 #define HEADER_P(bp) ((char *)(bp) - WSIZE)
 #define FOOTER_P(bp) ((char *)(bp) + GET_SIZE(HEADER_P(bp)) - ALIGNMENT)
@@ -54,34 +58,40 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - ALIGNMENT)))
 
-//#define SET_PREV_NODE(bp, prev_node) (*(unsigned int *)(bp) = (unsigned int)(prev_node))
-//#define SET_NEXT_NODE(bp, next_node) (*(unsigned int *)(bp + WSIZE) = (unsigned int)(next_node))
+#define SET_PREV_NODE(bp, prev_node) (*(unsigned int *)(bp) = (unsigned int)(prev_node))
+#define SET_NEXT_NODE(bp, next_node) (*(unsigned int *)(bp + WSIZE) = (unsigned int)(next_node))
 
-//#define GET_PREV_NODE(bp) ((char *)(bp))
-//#define GET_NEXT_NODE(bp) ((char *)(bp + WSIZE))
+#define GET_PREV_NODE(bp) ((char *)(bp))
+#define GET_NEXT_NODE(bp) ((char *)(bp + WSIZE))
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
+
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-static char *heap_start;
+void *free_lists[SEG_LIST_SIZE];
 
 static void* extend_heap(size_t words);
 static void* coalesce(void* bp);
-static void *find_fit(size_t asize);
-static void place(void *bp, size_t asize);
-
-//static void insert_node(void* bp);
-//static void delete_node(void* bp);
-//static void print_free_lists();
-//static void print_pointer(void* ptr);
+static void insert_node(void* bp);
+static void delete_node(void* bp);
+static void print_free_lists();
+static void print_pointer(void* ptr);
 
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
-{	
-	void* bp;
+{
+	//declare pointer to char
+	void *heap_start;
+	void *bp;
+
+	//initialize segregated free lists
+	int i;
+	for (i = 0; i < SEG_LIST_SIZE; i++)
+		free_lists[i] = NULL;
+	//(long)(heap_start = mem_sbrk(4 * WSIZE))== -1
 	if ((heap_start = mem_sbrk(4*WSIZE)) == (void *)-1)
 		return -1;
     	
@@ -96,6 +106,9 @@ int mm_init(void)
 	if (bp  == NULL)
 		return -1;
 	
+    print_pointer(heap_start);
+	print_pointer(bp);
+	insert_node(bp);
 	return 0;
 }
 
@@ -108,12 +121,10 @@ int mm_init(void)
  *
  */
 void *mm_malloc(size_t size)
-
 {
 	size_t asize;
 	size_t extendsize;
-	//void *bp = NULL;
-	char *bp;
+	void *bp = NULL;
 
 	if (size == 0)
 		return NULL;
@@ -124,17 +135,29 @@ void *mm_malloc(size_t size)
 		asize = ALIGNMENT * ((size + (ALIGNMENT) + (ALIGNMENT-1))/ALIGNMENT);
 
 	//finds matching entry from free lists for asize
-	
-	if ((bp = find_fit(asize)) != NULL){
-		place(bp, asize);
+	int i;
+	for (i = 0; i < SEG_LIST_SIZE; i++) {
+		if ((0x1<<i) >= asize && free_lists[i] != NULL) {
+			bp = free_lists[i];
+			delete_node(free_lists[i]);
+			break;
+		}
+	}
+
+	if (bp != NULL) {
+		PUT(HEADER_P(bp), PACK(asize, 1));
+		PUT(FOOTER_P(bp), PACK(asize, 1));
 		return bp;
 	}
 	
 	extendsize = MAX(asize, CHUNKSIZE);
 	if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
 		return NULL;
+	PUT(HEADER_P(bp), PACK(asize, 1));
+	PUT(FOOTER_P(bp), PACK(asize, 1));
 
-	place(bp, asize);	
+	//what if we have to split? free  (CHUNKSIZE - asize)?
+	
 	return bp;
 }
 
@@ -147,7 +170,8 @@ void mm_free(void *bp)
 
 	PUT(HEADER_P(bp), PACK(size, 0));
 	PUT(FOOTER_P(bp), PACK(size, 0));
-	coalesce(bp);
+	//insert_node(bp);
+	//coalesce(bp);
 }
 
 
@@ -179,8 +203,8 @@ void *mm_realloc(void *ptr, size_t size)
  */
 static void *extend_heap(size_t words)
 {	
-	//void *bp;
-  	char *bp;
+	void *bp;
+  	//char *bp;
   	size_t size;
 
   	size = (words % 2) ? (words + 1)*WSIZE : words * WSIZE;
@@ -191,7 +215,8 @@ static void *extend_heap(size_t words)
   	PUT(FOOTER_P(bp), PACK(size, 0));
   	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(0, 1));
   
-	return coalesce(bp);
+	//return coalesce(bp);
+	return (bp);
 }
 
 static void *coalesce(void* bp) 
@@ -205,21 +230,27 @@ static void *coalesce(void* bp)
 		return bp;
   	}
 
+	delete_node(bp);
+
   	// prev allocated, next free
   	if (prev_alloc && !next_alloc) {
+		delete_node(NEXT_BLKP(bp));
   		size += GET_SIZE(HEADER_P(NEXT_BLKP(bp)));
   		PUT(HEADER_P(bp), PACK(size, 0));
   		PUT(FOOTER_P(bp), PACK(size, 0));
   	}
   	// prev free, next allocated
   	else if (!prev_alloc && next_alloc) {
+  		delete_node(PREV_BLKP(bp));
 		size += GET_SIZE(HEADER_P(PREV_BLKP(bp)));
-  		PUT(FOOTER_P(bp), PACK(size, 0));	
   		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
-		bp = PREV_BLKP(bp);
+  		PUT(FOOTER_P(bp), PACK(size, 0));
+  		bp = PREV_BLKP(bp);
   	}
   	// prev free, next free
   	else {
+  	    delete_node(PREV_BLKP(bp)); 	
+		delete_node(NEXT_BLKP(bp));
 		size += GET_SIZE(HEADER_P(PREV_BLKP(bp))) + GET_SIZE(FOOTER_P(NEXT_BLKP(bp)));
   		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
   		PUT(FOOTER_P(NEXT_BLKP(bp)), PACK(size, 0));
@@ -227,6 +258,7 @@ static void *coalesce(void* bp)
 		
   	}
 
+	insert_node(bp);
   	return bp;
 }
 
@@ -234,7 +266,7 @@ static void *coalesce(void* bp)
  * takes argument bp (block pointer), check its header for size, and
  * insert bp to the front of the linked list of the corresponding index 
  * in segregated_free_list
- 
+ */
 static void insert_node(void* bp)
 {
 	int bp_i = 0;
@@ -269,12 +301,11 @@ static void insert_node(void* bp)
 	return;
 	//return bp;
 }
-*/
 
 /*
  * takes argument bp, check its header for size, iterate through corresponding
  * free list to find 
- 
+ */
 static void delete_node(void* bp)
 {
 	if (bp == NULL) {
@@ -299,36 +330,7 @@ static void delete_node(void* bp)
 	return;
 	//return bp;
 }
-*/
 
-static void *find_fit(size_t asize){
-	void *bp; 
-
-	for (bp = heap_start; GET_SIZE(HEADER_P(bp)) > 0; bp = NEXT_BLKP(bp)){
-		if (!GET_ALLOC(HEADER_P(bp)) && (asize <= GET_SIZE(HEADER_P(bp)))){
-			return bp;
-		}
-	}
-	return NULL;
-}
-
-static void place(void *bp, size_t asize){
-	size_t csize = GET_SIZE(HEADER_P(bp));
-
-	if ((csize - asize) >= (2*ALIGNMENT)){
-		PUT(HEADER_P(bp), PACK(asize, 1));
-		PUT(FOOTER_P(bp), PACK(asize, 1));
-		bp = NEXT_BLKP(bp);
-		PUT(HEADER_P(bp), PACK(csize - asize, 0));
-		PUT(FOOTER_P(bp), PACK(csize - asize, 0));
-	}
-	else {
-		PUT(HEADER_P(bp), PACK(csize, 1));
-		PUT(FOOTER_P(bp), PACK(csize, 1));
-	}
-}
-
-/*
 static void print_pointer(void* ptr){
 	printf("%p", (unsigned int *)ptr);
 }
@@ -345,7 +347,6 @@ void print_free_lists(){
 		}
 	}
 }
-*/
 
 /*
 int testCnt = 0;
