@@ -120,7 +120,7 @@ void *mm_malloc(size_t size)
 {
 	size_t asize;
 	size_t extendsize;
-	void *bp;
+	void *bp = NULL;
 
 	if (size == 0)
 		return NULL;
@@ -132,20 +132,14 @@ void *mm_malloc(size_t size)
 
 	//finds matching entry from free lists for asize
 	int i;
-	int bp_i = 0;
-
 	for (i = 0; i < SEG_LIST_SIZE; i++) {
 		if ((0x1<<i) >= asize && free_lists[i] != NULL) {
-			bp_i = i;
+			bp = free_lists[i];
+			delete_node(free_lists[i]);
 			break;
-		}
-		else {
-			bp_i = SEG_LIST_SIZE - 1;
 		}
 	}
 
-	//bp = free_lists[bp_i];
-	delete_node(free_lists[bp_i]);
 	//bp = delete_node(free_lists[bp_i]);
 
 	if (bp != NULL) {
@@ -217,9 +211,8 @@ static void *extend_heap(size_t words)
   	PUT(FOOTER_P(bp), PACK(size, 0));
   	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(size, 1));
   
-	insert_node(bp);
-
 	return coalesce(bp);
+	//return (bp);
 }
 
 static void *coalesce(void* bp) 
@@ -232,6 +225,7 @@ static void *coalesce(void* bp)
   	if (prev_alloc && next_alloc) {
 		return bp;
   	}
+
 	delete_node(bp);
 
   	// prev allocated, next free
