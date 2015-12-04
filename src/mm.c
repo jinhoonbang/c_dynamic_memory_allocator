@@ -120,7 +120,7 @@ void *mm_malloc(size_t size)
 {
 	size_t asize;
 	size_t extendsize;
-	void *bp;
+	void *bp = NULL;
 
 	if (size == 0)
 		return NULL;
@@ -132,20 +132,15 @@ void *mm_malloc(size_t size)
 
 	//finds matching entry from free lists for asize
 	int i;
-	int bp_i = 0;
 
-	for (i = 0; i < SEG_LIST_SIZE; i++) {
-		if ((0x1<<i) >= asize && free_lists[i] != NULL) {
-			bp_i = i;
+	for (i = 0; i < SEG_LIST_SIZE; i++){ 
+		if ((0x1<<i) >= asize && free_lists[i] != NULL){
+		 	bp = free_lists[i];
+			delete_node(free_lists[i]);
 			break;
-		}
-		else {
-			bp_i = SEG_LIST_SIZE - 1;
-		}
+		}	
 	}
 
-	//bp = free_lists[bp_i];
-	delete_node(free_lists[bp_i]);
 	//bp = delete_node(free_lists[bp_i]);
 
 	if (bp != NULL) {
@@ -175,8 +170,10 @@ void mm_free(void *bp)
 	PUT(HEADER_P(bp), PACK(size, 0));
 	PUT(FOOTER_P(bp), PACK(size, 0));
 	insert_node(bp);
-	coalesce(bp);
+	return;
+	//coalesce(bp);
 }
+
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
@@ -205,8 +202,9 @@ void *mm_realloc(void *ptr, size_t size)
  *
  */
 static void *extend_heap(size_t words)
-{
-  	char *bp;
+{	
+	void *bp;
+  	//char *bp;
   	size_t size;
 
   	size = (words % 2) ? (words + 1)*WSIZE : words * WSIZE;
@@ -215,11 +213,10 @@ static void *extend_heap(size_t words)
   
   	PUT(HEADER_P(bp), PACK(size, 0));
   	PUT(FOOTER_P(bp), PACK(size, 0));
-  	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(size, 1));
+  	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(0, 1));
   
-	insert_node(bp);
-
-	return coalesce(bp);
+	//return coalesce(bp);
+	return bp;
 }
 
 static void *coalesce(void* bp) 
@@ -257,6 +254,7 @@ static void *coalesce(void* bp)
   		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
   		PUT(FOOTER_P(NEXT_BLKP(bp)), PACK(size, 0));
   		bp = PREV_BLKP(bp);
+		
   	}
 
 	insert_node(bp);
@@ -281,6 +279,9 @@ static void insert_node(void* bp)
 			break;
 		}
 	}
+
+	if (bp_i == 0)
+		bp_i = SEG_LIST_SIZE - 1;
 	
 	//maybe check if bp is NULL?
 	if (free_lists[bp_i] == NULL) {
