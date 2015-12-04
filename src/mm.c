@@ -37,18 +37,20 @@ team_t team = {
 #define WSIZE 4
 #define ALIGNMENT 8
 #define CHUNKSIZE (1<<12)
+//#define SEG_LIST_SIZE 12
 #define SEG_LIST_SIZE 20
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 
-#define PACK(size, prev_alloc, alloc) ((size | prev_alloc << 1 | alloc))
+//#define PACK(size, prev_alloc, alloc) ((size | prev_alloc << 1 | alloc))
+#define PACK(size, alloc) ((size) | (alloc))
 
 #define GET(p) (*(unsigned int *)(p))
 #define PUT(p, val) (*(unsigned int *)(p) = (val))
 
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
-#define GET_PREV_ALLOC(p) (GET(p) & 0x2)
+//#define GET_PREV_ALLOC(p) (GET(p) & 0x2)
 
 #define HEADER_P(bp) ((char *)(bp) - WSIZE)
 #define FOOTER_P(bp) ((char *)(bp) + GET_SIZE(HEADER_P(bp)) - ALIGNMENT)
@@ -71,8 +73,8 @@ void *free_lists[SEG_LIST_SIZE];
 
 static void* extend_heap(size_t words);
 static void* coalesce(void* bp);
-static void* insert_node(void* bp);
-static void* delete_node(void* bp);
+static void insert_node(void* bp);
+static void delete_node(void* bp);
 
 /* 
  * mm_init - initialize the malloc package.
@@ -93,9 +95,9 @@ int mm_init(void)
 	
 	//change prev_alignment to 0 or 1?? 
 	PUT(heap_start, 0);
-	PUT(heap_start + (1*WSIZE), PACK(ALIGNMENT, 1, 1));
-	PUT(heap_start + (2*WSIZE), PACK(ALIGNMENT, 0, 1));
-	PUT(heap_start + (3*WSIZE), PACK(0, 1, 1));
+	PUT(heap_start + (1*WSIZE), PACK(ALIGNMENT, 1));
+	PUT(heap_start + (2*WSIZE), PACK(ALIGNMENT, 1));
+	PUT(heap_start + (3*WSIZE), PACK(0, 1));
 	heap_start += ALIGNMENT;
 
 	bp = extend_heap(CHUNKSIZE/WSIZE);
@@ -108,23 +110,14 @@ int mm_init(void)
 
 /*
  * takes argument size and pad it to satisfy align req. 
- * add header and footer 
  * find matching free space from segregated_free_list
+ * add header and footer 
  * split free space if the required block is smaller by ALIGNMENT
  * extend heap if there is no matching free space in segregated_free_list
  *
  */
 void *mm_malloc(size_t size)
 {
-    // int newsize = ALIGN(size + SIZE_T_SIZE);
-    // void *p = mem_sbrk(newsize);
-    // if (p == (void *)-1)
-	// return NULL;
-    // else {
-    //     *(size_t *)p = size;
-    //     return (void *)((char *)p + SIZE_T_SIZE);
-    // }
-	
 	size_t asize;
 	size_t extendsize;
 	void *bp;
@@ -137,8 +130,7 @@ void *mm_malloc(size_t size)
 	else
 		asize = ALIGNMENT * ((size + (ALIGNMENT) + (ALIGNMENT-1))/ALIGNMENT);
 
-	//0x2 --> 0x1
-	//finds matching entry from  for asize
+	//finds matching entry from free lists for asize
 	int i;
 	int bp_i = 0;
 
@@ -147,21 +139,26 @@ void *mm_malloc(size_t size)
 			bp_i = i;
 			break;
 		}
+		else {
+			bp_i = SEG_LIST_SIZE - 1;
+		}
 	}
 
-	bp = delete_node(free_lists[bp_i]);
+	//bp = free_lists[bp_i];
+	delete_node(free_lists[bp_i]);
+	//bp = delete_node(free_lists[bp_i]);
 
 	if (bp != NULL) {
-		PUT(HEADER_P(bp), PACK(asize, GET_PREV_ALLOC(HEADER_P(bp)), 1));
-		PUT(FOOTER_P(bp), PACK(asize, 0, 1));
+		PUT(HEADER_P(bp), PACK(asize, 1));
+		PUT(FOOTER_P(bp), PACK(asize, 1));
 		return bp;
 	}
 	
 	extendsize = MAX(asize, CHUNKSIZE);
 	if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
 		return NULL;
-	PUT(HEADER_P(bp), PACK(asize, GET_PREV_ALLOC(HEADER_P(bp)), 1));
-	PUT(FOOTER_P(bp), PACK(asize, 0, 1));
+	PUT(HEADER_P(bp), PACK(asize, 1));
+	PUT(FOOTER_P(bp), PACK(asize, 1));
 
 	//what if we have to split? free  (CHUNKSIZE - asize)?
 	
@@ -175,10 +172,10 @@ void mm_free(void *bp)
 {
 	size_t size = GET_SIZE(HEADER_P(bp));
 
-	PUT(HEADER_P(bp), PACK(size, GET_PREV_ALLOC(HEADER_P(bp)), 0));
-	PUT(FOOTER_P(bp), PACK(size, 0, 0));
-	//coalesce(bp);
+	PUT(HEADER_P(bp), PACK(size, 0));
+	PUT(FOOTER_P(bp), PACK(size, 0));
 	insert_node(bp);
+	coalesce(bp);
 }
 
 /*
@@ -207,7 +204,6 @@ void *mm_realloc(void *ptr, size_t size)
  * argument is number of words, not number of bytes.  
  *
  */
-
 static void *extend_heap(size_t words)
 {
   	char *bp;
@@ -217,40 +213,40 @@ static void *extend_heap(size_t words)
   	if ((long)(bp = mem_sbrk(size)) == -1)
 		return NULL;
   
-    //how do we know PREV_ALLOC is 0?
-  	PUT(HEADER_P(bp), PACK(size, 1, 0));
-  	//PUT linked list pointers
-  	PUT(FOOTER_P(bp), PACK(size, 0, 0));
-  	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(size, 0, 1));
+  	PUT(HEADER_P(bp), PACK(size, 0));
+  	PUT(FOOTER_P(bp), PACK(size, 0));
+  	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(size, 1));
   
-  	//add coalesce and insert to free list  		
-  	//bp = coalesce(bp);
-	return bp;
+	insert_node(bp);
+
+	return coalesce(bp);
 }
 
 static void *coalesce(void* bp) 
 {
-	size_t prev_alloc = GET_PREV_ALLOC(HEADER_P(bp));
+	size_t prev_alloc = GET_ALLOC(FOOTER_P(PREV_BLKP(bp)));
   	size_t next_alloc = GET_ALLOC(HEADER_P(NEXT_BLKP(bp)));
   	size_t size = GET_SIZE(HEADER_P(bp));
   
   	// prev allocated, next allocated
   	if (prev_alloc && next_alloc) {
-		;
+		return bp;
   	}
+	delete_node(bp);
+
   	// prev allocated, next free
-  	else if (prev_alloc && !next_alloc) {
+  	if (prev_alloc && !next_alloc) {
 		delete_node(NEXT_BLKP(bp));
   		size += GET_SIZE(HEADER_P(NEXT_BLKP(bp)));
-  		PUT(HEADER_P(bp), PACK(size, prev_alloc, 0));
-  		PUT(FOOTER_P(bp), PACK(size, 0, 0));
+  		PUT(HEADER_P(bp), PACK(size, 0));
+  		PUT(FOOTER_P(bp), PACK(size, 0));
   	}
   	// prev free, next allocated
   	else if (!prev_alloc && next_alloc) {
   		delete_node(PREV_BLKP(bp));
 		size += GET_SIZE(HEADER_P(PREV_BLKP(bp)));
-  		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, GET_PREV_ALLOC(HEADER_P(PREV_BLKP(bp))), 0));
-  		PUT(FOOTER_P(bp), PACK(size, 0, 0));
+  		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
+  		PUT(FOOTER_P(bp), PACK(size, 0));
   		bp = PREV_BLKP(bp);
   	}
   	// prev free, next free
@@ -258,20 +254,22 @@ static void *coalesce(void* bp)
   	    delete_node(PREV_BLKP(bp)); 	
 		delete_node(NEXT_BLKP(bp));
 		size += GET_SIZE(HEADER_P(PREV_BLKP(bp))) + GET_SIZE(FOOTER_P(NEXT_BLKP(bp)));
-  		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, GET_PREV_ALLOC(HEADER_P(PREV_BLKP(bp))), 0));
-  		PUT(FOOTER_P(NEXT_BLKP(bp)), PACK(size, 0, 0));
+  		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
+  		PUT(FOOTER_P(NEXT_BLKP(bp)), PACK(size, 0));
   		bp = PREV_BLKP(bp);
   	}
-  
+
+	insert_node(bp);
+
   	return bp;
 }
+
 /* 
  * takes argument bp (block pointer), check its header for size, and
  * insert bp to the front of the linked list of the corresponding index 
  * in segregated_free_list
  */
-
-static void* insert_node(void* bp)
+static void insert_node(void* bp)
 {
 	int bp_i = 0;
 	size_t size = GET_SIZE(HEADER_P(bp));
@@ -296,18 +294,19 @@ static void* insert_node(void* bp)
 		free_lists[bp_i] = bp;
 	}
 	
-	return bp;
+	return;
+	//return bp;
 }
 
 /*
  * takes argument bp, check its header for size, iterate through corresponding
  * free list to find 
  */
-
-static void* delete_node(void* bp)
+static void delete_node(void* bp)
 {
 	if (bp == NULL) {
-		return NULL;
+		//return NULL;
+		;
 	}
 	else if (GET_PREV_NODE(bp) == NULL && GET_NEXT_NODE(bp) == NULL) {
 		;
@@ -323,7 +322,8 @@ static void* delete_node(void* bp)
 		SET_NEXT_NODE(GET_PREV_NODE(bp), GET_NEXT_NODE(bp));
 	}
 
-	return bp;
+	return;
+	//return bp;
 }
 
 /*
