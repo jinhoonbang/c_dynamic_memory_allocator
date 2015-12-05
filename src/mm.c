@@ -54,26 +54,27 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - ALIGNMENT)))
 
-//#define SET_PREV_NODE(bp, prev_node) (*(unsigned int *)(bp) = (unsigned int)(prev_node))
-//#define SET_NEXT_NODE(bp, next_node) (*(unsigned int *)(bp + WSIZE) = (unsigned int)(next_node))
+#define SET_PREV_NODE(bp, prev_node) (*(unsigned int *)(bp) = (unsigned int)(prev_node))
+#define SET_NEXT_NODE(bp, next_node) (*(unsigned int *)(bp + WSIZE) = (unsigned int)(next_node))
 
-//#define GET_PREV_NODE(bp) ((char *)(bp))
-//#define GET_NEXT_NODE(bp) ((char *)(bp + WSIZE))
+#define GET_PREV_NODE(bp) ((char *)(bp))
+#define GET_NEXT_NODE(bp) ((char *)(bp + WSIZE))
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 static char *heap_start;
+static char *free_list;
 
 static void* extend_heap(size_t words);
-static void* coalesce(void* bp);
+static void* coalesce(char* bp);
 static void *find_fit(size_t asize);
-static void place(void *bp, size_t asize);
-
-//static void insert_node(void* bp);
-//static void delete_node(void* bp);
+static void place(char *bp, size_t asize);
+static void insert_node(char* bp);
+static void delete_node(char* bp);
 //static void print_free_lists();
+static void print_free_list();
 //static void print_pointer(void* ptr);
 
 /* 
@@ -96,6 +97,9 @@ int mm_init(void)
 	if (bp  == NULL)
 		return -1;
 	
+	//insert_node(bp); //NOT NECESSARY
+	//should be casted?	
+	free_list = bp;
 	return 0;
 }
 
@@ -104,6 +108,8 @@ int mm_init(void)
  * find matching free space from segregated_free_list
  * add header and footer 
  * split free space if the required block is smaller by ALIGNMENT
+ * extend heap if there is no matching free space in segregated_free_list
+ * by ALIGNMENT
  * extend heap if there is no matching free space in segregated_free_list
  *
  */
@@ -190,11 +196,12 @@ static void *extend_heap(size_t words)
   	PUT(HEADER_P(bp), PACK(size, 0));
   	PUT(FOOTER_P(bp), PACK(size, 0));
   	PUT(HEADER_P(NEXT_BLKP(bp)), PACK(0, 1));
-  
+	
+	insert_node(bp);
 	return coalesce(bp);
 }
 
-static void *coalesce(void* bp) 
+static void *coalesce(char* bp) 
 {
 	size_t prev_alloc = GET_ALLOC(FOOTER_P(PREV_BLKP(bp)));
   	size_t next_alloc = GET_ALLOC(HEADER_P(NEXT_BLKP(bp)));
@@ -210,24 +217,85 @@ static void *coalesce(void* bp)
   		size += GET_SIZE(HEADER_P(NEXT_BLKP(bp)));
   		PUT(HEADER_P(bp), PACK(size, 0));
   		PUT(FOOTER_P(bp), PACK(size, 0));
+		delete_node(GET_NEXT_NODE(bp));
   	}
   	// prev free, next allocated
   	else if (!prev_alloc && next_alloc) {
 		size += GET_SIZE(HEADER_P(PREV_BLKP(bp)));
   		PUT(FOOTER_P(bp), PACK(size, 0));	
   		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
+		delete_node(bp);
 		bp = PREV_BLKP(bp);
+		insert_node(bp);
   	}
   	// prev free, next free
   	else {
 		size += GET_SIZE(HEADER_P(PREV_BLKP(bp))) + GET_SIZE(FOOTER_P(NEXT_BLKP(bp)));
   		PUT(HEADER_P(PREV_BLKP(bp)), PACK(size, 0));
   		PUT(FOOTER_P(NEXT_BLKP(bp)), PACK(size, 0));
-  		bp = PREV_BLKP(bp);
-		
+  		delete_node(bp);
+		delete_node(GET_NEXT_NODE(bp));
+		bp = PREV_BLKP(bp);
+		insert_node(bp);
   	}
 
   	return bp;
+}
+/*
+ * takes argument bp 
+ * iterate through free_list
+ * place bp so that free_list is increasing in address order
+ */
+static void insert_node(char* bp){	
+	char* curr_node = free_list;
+	char* prev_node;
+
+	if (curr_node == NULL)
+		return;
+
+	while (curr_node != NULL && curr_node < bp){
+		prev_node = curr_node;
+		curr_node = GET_NEXT_NODE(curr_node);
+	}
+
+	//if curr_node is NULL, place bp at the end
+	if (curr_node == NULL){
+		SET_NEXT_NODE(prev_node, bp);
+		SET_PREV_NODE(bp, prev_node);
+		SET_NEXT_NODE(bp, NULL);
+		return;
+	}
+
+	//curr_node is now bigger than bp
+	SET_NEXT_NODE(bp, curr_node);
+	SET_PREV_NODE(bp, GET_PREV_NODE(curr_node));
+	SET_PREV_NODE(curr_node, bp);
+	SET_NEXT_NODE(GET_PREV_NODE(curr_node), bp);
+	
+	print_free_list();
+	return;
+}
+
+/*
+ * take bp as argument
+ * set prev node of bp to next node of bp and vice versa
+ */
+static void delete_node(char* bp){
+	//SET_NEXT_NODE(bp, NULL);
+	//SET_PREV_NODE(bp, NULL);
+	if (bp == NULL)
+		return;
+	
+	char* prev_node = GET_PREV_NODE(bp);
+	char* next_node = (GET_NEXT_NODE(bp));
+
+	SET_NEXT_NODE(prev_node, next_node);
+	SET_PREV_NODE(next_node, prev_node);
+	SET_NEXT_NODE(bp, NULL);
+	SET_PREV_NODE(bp, NULL);
+
+	print_free_list();
+	return;
 }
 
 /* 
@@ -301,10 +369,15 @@ static void delete_node(void* bp)
 }
 */
 
-static void *find_fit(size_t asize){
-	void *bp; 
 
-	for (bp = heap_start; GET_SIZE(HEADER_P(bp)) > 0; bp = NEXT_BLKP(bp)){
+/*
+ *
+ */
+
+static void *find_fit(size_t asize){
+	char* bp; 
+
+	for (bp = free_list; GET_SIZE(HEADER_P(bp)) > 0; bp = GET_NEXT_NODE(bp)){
 		if (!GET_ALLOC(HEADER_P(bp)) && (asize <= GET_SIZE(HEADER_P(bp)))){
 			return bp;
 		}
@@ -312,19 +385,37 @@ static void *find_fit(size_t asize){
 	return NULL;
 }
 
-static void place(void *bp, size_t asize){
+
+/*
+ * get free block with size greater than asize,
+ * set it as allocated block
+ * 
+ */
+
+static void place(char *bp, size_t asize){
 	size_t csize = GET_SIZE(HEADER_P(bp));
 
 	if ((csize - asize) >= (2*ALIGNMENT)){
 		PUT(HEADER_P(bp), PACK(asize, 1));
 		PUT(FOOTER_P(bp), PACK(asize, 1));
+		delete_node(bp);
 		bp = NEXT_BLKP(bp);
 		PUT(HEADER_P(bp), PACK(csize - asize, 0));
 		PUT(FOOTER_P(bp), PACK(csize - asize, 0));
+		insert_node(bp);
 	}
 	else {
 		PUT(HEADER_P(bp), PACK(csize, 1));
 		PUT(FOOTER_P(bp), PACK(csize, 1));
+		delete_node(bp);
+	}
+}
+
+void print_free_list() {
+	char* currnode = free_list;
+	while ( currnode != NULL) {
+		printf("%p", currnode);
+		currnode = GET_NEXT_NODE(currnode);
 	}
 }
 
